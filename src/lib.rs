@@ -35,52 +35,33 @@
 #![warn(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
-// Module organization following the C implementation structure
+// Core modules - FBX-specific domain logic only
 
-// Phase 1: Foundation & Core Infrastructure
-pub mod platform;      // Platform detection, alignment, version
-pub mod utils;         // Utilities, math, bit manipulation
-pub mod deflate;       // DEFLATE compression (optional)
-pub mod error;         // Error handling and reporting
-pub mod allocator;     // Custom memory allocation
-pub mod memory;        // Memory buffers and management
-pub mod hash;          // Hash maps and functions
-pub mod strings;       // String pool and interning
-pub mod threading;     // Thread pool and atomics
+pub mod error;         // Error types and Result
+pub mod types;         // FBX scene data structures (Scene, Node, Mesh, etc.)
+pub mod binary;        // FBX binary format parser
+pub mod ascii;         // FBX ASCII format parser
+pub mod scene;         // Scene graph construction from parsed data
 
-// Phase 2: Type Definitions & I/O
-pub mod types;         // Core FBX data structures
-pub mod progress;      // Progress reporting callbacks
-pub mod io;            // I/O abstraction layer
+// Optional feature modules
+#[cfg(feature = "obj-support")]
+pub mod obj;           // Wavefront OBJ/MTL parser
 
-// Phase 3: Parsing Infrastructure
-pub mod xml;           // XML parser
-pub mod fbx_types;     // FBX value type system
-pub mod dom;           // DOM node operations
-pub mod binary_parse;  // Binary FBX parser
-pub mod ascii_parse;   // ASCII FBX parser
+#[cfg(feature = "nurbs")]
+pub mod nurbs;         // NURBS curve/surface evaluation
 
-// Phase 4: File Format Support
-pub mod parsing;       // General parsing logic
-pub mod obj;           // Wavefront OBJ support
+#[cfg(feature = "subdivision")]
+pub mod subdivision;   // Catmull-Clark subdivision surfaces
 
-// Phase 5: Scene Processing
-pub mod scene;         // Scene construction and processing
-
-// Phase 6: Advanced Features
-pub mod geometry;      // Geometry processing and caches
-pub mod animation;     // Animation evaluation and baking
-pub mod nurbs;         // NURBS curves and surfaces
-pub mod topology;      // Mesh topology operations
-pub mod subdivision;   // Subdivision surface evaluation
-
-// Phase 7: Public API
-pub mod api;           // Main public API
+pub mod geometry;      // Mesh processing (triangulation, skinning, topology)
+pub mod animation;     // Animation curve evaluation and blending
 
 // Re-exports for convenience
-pub use api::{load_file, load_memory, free_scene};
 pub use error::{Error, Result};
 pub use types::*;
+
+// Public API functions
+pub use scene::{load_file, load_memory};
 
 /// Library version information
 pub const VERSION_MAJOR: u32 = 0;

@@ -11,21 +11,22 @@ keywords = ["fbx", "3d", "graphics", "gamedev", "format"]
 categories = ["parser-implementations", "graphics", "game-development"]
 
 [dependencies]
-# No dependencies for core functionality - pure Rust implementation
+flate2 = "1.0"           # DEFLATE decompression for FBX
+byteorder = "1.5"        # Binary format parsing
+thiserror = "1.0"        # Ergonomic error types
 
 [dev-dependencies]
-# Testing dependencies will be added as needed
+criterion = "0.5"        # Benchmarking
+approx = "0.5"           # Float comparisons in tests
 
 [features]
-default = ["std"]
+default = ["std", "obj-support"]
 std = []
 # Feature flags for optional components
-no-libc = []
-deflate = []
-obj-support = []
-nurbs = []
-subdivision = []
-geometry-cache = []
+obj-support = []         # Wavefront OBJ file support
+nurbs = []               # NURBS evaluation
+subdivision = []         # Subdivision surfaces
+geometry-cache = []      # Geometry cache support
 
 [lib]
 name = "ufbx"
