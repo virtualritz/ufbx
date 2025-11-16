@@ -294,23 +294,44 @@ impl SceneBuilder {
         // First property is always the FBX ID
         let fbx_id = if !node.values.is_empty() {
             // Parse FBX ID from first property
-            0  // TODO: Extract from node.values[0]
+            node.values[0].as_i64()
+                .ok_or_else(|| Error::unknown("FBX ID is not a number"))? as u64
         } else {
             return Err(Error::unknown("Object node missing FBX ID"));
         };
 
         // Second property is name (may be "Name::Type" in ASCII, "Name\x00\x01Type" in binary)
         let (name, sub_type) = if node.values.len() > 1 {
-            // TODO: Split name/type from node.values[1]
-            ("".to_string(), "".to_string())
+            // Extract name string and split on \x00\x01 separator for binary files
+            if let Some(name_str) = node.values[1].as_string() {
+                // Check for binary separator \x00\x01
+                if let Some(sep_idx) = name_str.find("\x00\x01") {
+                    let name = name_str[..sep_idx].to_string();
+                    let type_part = name_str[sep_idx + 2..].to_string();
+                    (name, type_part)
+                } else if let Some(sep_idx) = name_str.find("::") {
+                    // ASCII separator ::
+                    let name = name_str[..sep_idx].to_string();
+                    let type_part = name_str[sep_idx + 2..].to_string();
+                    (name, type_part)
+                } else {
+                    (name_str.to_string(), "".to_string())
+                }
+            } else {
+                ("".to_string(), "".to_string())
+            }
         } else {
             ("".to_string(), "".to_string())
         };
 
         // Third property (if present) is sub-type
         let sub_type = if node.values.len() > 2 {
-            // TODO: Extract from node.values[2]
-            sub_type
+            // Extract sub-type from third property
+            if let Some(type_str) = node.values[2].as_string() {
+                type_str.to_string()
+            } else {
+                sub_type
+            }
         } else {
             sub_type
         };
@@ -362,12 +383,81 @@ impl SceneBuilder {
         Ok(props)
     }
 
-    fn parse_property_binary(&mut self, _node: &BinaryNode) -> Result<Prop> {
+    fn parse_property_binary(&mut self, node: &BinaryNode) -> Result<Prop> {
         // Property format: P: "Name", "Type", "SubType", "Flags", Value1, Value2, ...
-        // TODO: Parse property values
+        if node.values.len() < 4 {
+            return Err(Error::unknown("Property node has too few values"));
+        }
+
+        let name = node.values[0].as_string()
+            .ok_or_else(|| Error::unknown("Property name is not a string"))?
+            .to_string();
+
+        let type_str = node.values[1].as_string()
+            .unwrap_or("");
+
+        let _flags_str = node.values[3].as_string().unwrap_or("");
+
+        // Parse property value based on type
+        let value = if node.values.len() >= 5 {
+            match type_str {
+                "Vector3D" | "Vector" | "Lcl Translation" | "Lcl Rotation" | "Lcl Scaling"
+                | "Color" | "ColorRGB" => {
+                    // Vec3 - read 3 doubles/floats
+                    let x = node.values.get(4).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let y = node.values.get(5).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let z = node.values.get(6).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    PropValue::Vec3(Vec3::new(x, y, z))
+                }
+                "Vector2D" => {
+                    let x = node.values.get(4).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let y = node.values.get(5).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    PropValue::Vec2(Vec2::new(x, y))
+                }
+                "Vector4D" | "ColorRGBA" => {
+                    let x = node.values.get(4).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let y = node.values.get(5).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let z = node.values.get(6).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let w = node.values.get(7).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    PropValue::Vec4(Vec4::new(x, y, z, w))
+                }
+                "bool" | "Bool" => {
+                    let val = node.values[4].as_i64().unwrap_or(0);
+                    PropValue::Bool(val != 0)
+                }
+                "int" | "Integer" | "enum" | "Enum" => {
+                    let val = node.values[4].as_i64().unwrap_or(0);
+                    PropValue::Integer(val)
+                }
+                "double" | "Double" | "Number" | "Float" | "double2" | "double3" | "double4" => {
+                    let val = node.values[4].as_f64().unwrap_or(0.0);
+                    PropValue::Number(val)
+                }
+                "KString" | "String" | "object" | "KTime" | "DateTime" | "Compound" => {
+                    if let Some(s) = node.values[4].as_string() {
+                        PropValue::String(FbxString::new(s))
+                    } else {
+                        PropValue::String(FbxString::new(""))
+                    }
+                }
+                _ => {
+                    // Default: try number
+                    if let Some(val) = node.values[4].as_f64() {
+                        PropValue::Number(val)
+                    } else if let Some(s) = node.values[4].as_string() {
+                        PropValue::String(FbxString::new(s))
+                    } else {
+                        PropValue::Integer(node.values[4].as_i64().unwrap_or(0))
+                    }
+                }
+            }
+        } else {
+            PropValue::Integer(0)
+        };
+
         Ok(Prop {
-            name: FbxString::new(""),
-            value: PropValue::Integer(0),
+            name: FbxString::new(name),
+            value,
             flags: PropFlags {
                 animated: false,
                 user_defined: false,
@@ -398,12 +488,33 @@ impl SceneBuilder {
             return Err(Error::unknown("Connection node has too few properties"));
         }
 
-        // TODO: Parse connection type, IDs, and properties
+        // Parse connection type (OO = Object-Object, OP = Object-Property, PP = Property-Property)
+        let _conn_type = node.values[0].as_string().unwrap_or("OO");
+
+        // Parse source and destination IDs
+        let src_fbx_id = node.values[1].as_i64()
+            .ok_or_else(|| Error::unknown("Connection source ID is not a number"))? as u64;
+        let dst_fbx_id = node.values[2].as_i64()
+            .ok_or_else(|| Error::unknown("Connection destination ID is not a number"))? as u64;
+
+        // Parse optional property names
+        let src_prop = if node.values.len() > 3 {
+            node.values[3].as_string().map(|s| s.to_string())
+        } else {
+            None
+        };
+
+        let dst_prop = if node.values.len() > 4 {
+            node.values[4].as_string().map(|s| s.to_string())
+        } else {
+            None
+        };
+
         let conn = TempConnection {
-            src_fbx_id: 0,  // TODO
-            dst_fbx_id: 0,  // TODO
-            src_prop: None,
-            dst_prop: None,
+            src_fbx_id,
+            dst_fbx_id,
+            src_prop,
+            dst_prop,
         };
 
         self.connections.push(conn);
@@ -668,31 +779,203 @@ impl SceneBuilder {
     }
 
     fn create_mesh(&mut self, data: &ElementData) -> Result<()> {
-        // TODO: Create mesh from data
-        // - Extract vertices, indices, normals, UVs
-        // - Build face list
-        // - Handle vertex attributes
+        // Create basic mesh structure
+        // For now, just create an empty mesh - actual geometry parsing would require
+        // reading the FBX node arrays which we'll implement later
+        let mesh = Mesh {
+            element: Element {
+                name: FbxString::new(data.name.clone()),
+                props: data.props.clone(),
+                element_id: self.scene.meshes.len() as u32,
+                typed_id: self.scene.meshes.len() as u32,
+                element_type: ElementType::Mesh,
+                connections_src: vec![],
+                connections_dst: vec![],
+            },
+            instances: vec![],
+            num_vertices: 0,
+            num_indices: 0,
+            num_faces: 0,
+            num_triangles: 0,
+            num_edges: 0,
+            max_face_triangles: 0,
+            num_empty_faces: 0,
+            num_point_faces: 0,
+            num_line_faces: 0,
+            faces: vec![],
+            face_smoothing: vec![],
+            face_material: vec![],
+            face_group: vec![],
+            face_hole: vec![],
+            edges: vec![],
+            edge_smoothing: vec![],
+            edge_crease: vec![],
+            edge_visibility: vec![],
+            vertex_indices: vec![],
+            vertices: vec![],
+            vertex_first_index: vec![],
+            vertex_position: VertexAttrib::default(),
+            vertex_normal: VertexAttrib::default(),
+            vertex_uv: VertexAttrib::default(),
+            vertex_tangent: VertexAttrib::default(),
+            vertex_bitangent: VertexAttrib::default(),
+            vertex_color: VertexAttrib::default(),
+            vertex_crease: VertexAttrib::default(),
+            uv_sets: vec![],
+            color_sets: vec![],
+            materials: vec![],
+            face_groups: vec![],
+            material_parts: vec![],
+            face_group_parts: vec![],
+            material_part_usage_order: vec![],
+            skinned_is_local: false,
+            skinned_position: VertexAttrib::default(),
+            skinned_normal: VertexAttrib::default(),
+            skin_deformers: vec![],
+            blend_deformers: vec![],
+            cache_deformers: vec![],
+            all_deformers: vec![],
+            subdivision_preview_levels: 0,
+            subdivision_render_levels: 0,
+            subdivision_display_mode: SubdivisionDisplayMode::Disabled,
+            subdivision_boundary: SubdivisionBoundary::Default,
+            subdivision_uv_boundary: SubdivisionBoundary::Default,
+            reversed_winding: false,
+            generated_normals: false,
+            subdivision_evaluated: false,
+            from_tessellated_nurbs: false,
+        };
+
+        self.scene.meshes.push(mesh);
         Ok(())
     }
 
-    fn create_light(&mut self, _data: &ElementData) -> Result<()> {
-        // TODO: Create light
+    fn create_light(&mut self, data: &ElementData) -> Result<()> {
+        // Create basic light structure
+        let light = Light {
+            element: Element {
+                name: FbxString::new(data.name.clone()),
+                props: data.props.clone(),
+                element_id: self.scene.lights.len() as u32,
+                typed_id: self.scene.lights.len() as u32,
+                element_type: ElementType::Light,
+                connections_src: vec![],
+                connections_dst: vec![],
+            },
+            instances: vec![],
+            color: Vec3::new(1.0, 1.0, 1.0),
+            intensity: 100.0,
+            local_direction: Vec3::new(0.0, -1.0, 0.0),
+            light_type: LightType::Point,
+            decay: LightDecay::None,
+            area_shape: LightAreaShape::Rectangle,
+            inner_angle: 0.0,
+            outer_angle: 45.0,
+            cast_light: true,
+            cast_shadows: true,
+        };
+
+        self.scene.lights.push(light);
         Ok(())
     }
 
-    fn create_camera(&mut self, _data: &ElementData) -> Result<()> {
-        // TODO: Create camera
+    fn create_camera(&mut self, data: &ElementData) -> Result<()> {
+        // Create basic camera structure
+        let camera = Camera {
+            element: Element {
+                name: FbxString::new(data.name.clone()),
+                props: data.props.clone(),
+                element_id: self.scene.cameras.len() as u32,
+                typed_id: self.scene.cameras.len() as u32,
+                element_type: ElementType::Camera,
+                connections_src: vec![],
+                connections_dst: vec![],
+            },
+            instances: vec![],
+            projection_mode: ProjectionMode::Perspective,
+            resolution_is_pixels: false,
+            resolution: Vec2::new(1920.0, 1080.0),
+            field_of_view_deg: Vec2::new(40.0, 40.0),
+            orthographic_extent: 1.0,
+            orthographic_size: Vec2::new(1.0, 1.0),
+            projection_plane: Vec2::new(1.0, 1.0),
+            aspect_ratio: 16.0 / 9.0,
+            near_plane: 0.1,
+            far_plane: 1000.0,
+            aspect_mode: AspectMode::WindowSize,
+            aperture_mode: ApertureMode::HorizontalAndVertical,
+            gate_fit: GateFit::None,
+            aperture_size_inch: Vec2::new(1.0, 1.0),
+            film_size_inch: Vec2::new(1.0, 1.0),
+            squeeze_ratio: 1.0,
+        };
+
+        self.scene.cameras.push(camera);
         Ok(())
     }
 
-    fn create_material(&mut self, _data: &ElementData) -> Result<()> {
-        // TODO: Create material
+    fn create_material(&mut self, data: &ElementData) -> Result<()> {
+        // Create basic material structure
+        let material = Material {
+            element: Element {
+                name: FbxString::new(data.name.clone()),
+                props: data.props.clone(),
+                element_id: self.scene.materials.len() as u32,
+                typed_id: self.scene.materials.len() as u32,
+                element_type: ElementType::Material,
+                connections_src: vec![],
+                connections_dst: vec![],
+            },
+            shader_type: ShaderType::FbxPhong,
+            shader: None,
+            fbx: MaterialFbxMaps::default(),
+            pbr: MaterialPbrMaps::default(),
+            textures: vec![],
+        };
+
+        self.scene.materials.push(material);
         Ok(())
     }
 
-    fn extract_local_transform(&self, _props: &Props) -> Transform {
-        // TODO: Extract Lcl Translation, Lcl Rotation, Lcl Scaling from properties
-        Transform::IDENTITY
+    fn extract_local_transform(&self, props: &Props) -> Transform {
+        // Extract Lcl Translation, Lcl Rotation, Lcl Scaling from properties
+        let translation = if let Some(prop) = props.find("Lcl Translation") {
+            match &prop.value {
+                PropValue::Vec3(v) => *v,
+                _ => Vec3::ZERO,
+            }
+        } else {
+            Vec3::ZERO
+        };
+
+        let rotation_euler = if let Some(prop) = props.find("Lcl Rotation") {
+            match &prop.value {
+                PropValue::Vec3(v) => *v,
+                _ => Vec3::ZERO,
+            }
+        } else {
+            Vec3::ZERO
+        };
+
+        let scale = if let Some(prop) = props.find("Lcl Scaling") {
+            match &prop.value {
+                PropValue::Vec3(v) => *v,
+                _ => Vec3::ONE,
+            }
+        } else {
+            Vec3::ONE
+        };
+
+        // Convert Euler angles (in degrees) to quaternion
+        // For now, use a simple conversion - in a real implementation this would
+        // respect the rotation order
+        let rotation = euler_to_quat(rotation_euler);
+
+        Transform {
+            translation,
+            rotation,
+            scale,
+        }
     }
 
     fn build_node_hierarchy(&mut self) -> Result<()> {
@@ -754,9 +1037,46 @@ impl SceneBuilder {
         Ok(())
     }
 
-    fn transform_to_matrix(&self, _transform: Transform) -> Matrix {
-        // TODO: Convert Transform to Matrix
-        Matrix::IDENTITY
+    fn transform_to_matrix(&self, transform: Transform) -> Matrix {
+        // Convert Transform to Matrix: M = T * R * S
+        // Build rotation matrix from quaternion
+        let q = transform.rotation;
+        let s = transform.scale;
+        let t = transform.translation;
+
+        // Quaternion to rotation matrix
+        let xx = q.x * q.x;
+        let yy = q.y * q.y;
+        let zz = q.z * q.z;
+        let xy = q.x * q.y;
+        let xz = q.x * q.z;
+        let yz = q.y * q.z;
+        let wx = q.w * q.x;
+        let wy = q.w * q.y;
+        let wz = q.w * q.z;
+
+        // Matrix columns (with scale applied)
+        let col0 = Vec3::new(
+            (1.0 - 2.0 * (yy + zz)) * s.x,
+            (2.0 * (xy + wz)) * s.x,
+            (2.0 * (xz - wy)) * s.x,
+        );
+
+        let col1 = Vec3::new(
+            (2.0 * (xy - wz)) * s.y,
+            (1.0 - 2.0 * (xx + zz)) * s.y,
+            (2.0 * (yz + wx)) * s.y,
+        );
+
+        let col2 = Vec3::new(
+            (2.0 * (xz + wy)) * s.z,
+            (2.0 * (yz - wx)) * s.z,
+            (1.0 - 2.0 * (xx + yy)) * s.z,
+        );
+
+        Matrix {
+            cols: [col0, col1, col2, t],
+        }
     }
 
     fn generate_normals(&mut self) -> Result<()> {
@@ -819,8 +1139,54 @@ impl Default for SceneBuilder {
 // =============================================================================
 
 fn matrix_mul(a: &Matrix, b: &Matrix) -> Matrix {
-    // TODO: Implement matrix multiplication
-    Matrix::IDENTITY
+    // Multiply two 4x3 affine transformation matrices: result = a * b
+    // Each matrix has 3 basis vectors (cols[0..2]) and translation (cols[3])
+
+    let mut result = Matrix::IDENTITY;
+
+    // For each column of b (first 3 are basis vectors, 4th is translation)
+    for i in 0..3 {
+        // Transform basis vector by matrix a
+        result.cols[i] = Vec3::new(
+            a.cols[0].x * b.cols[i].x + a.cols[1].x * b.cols[i].y + a.cols[2].x * b.cols[i].z,
+            a.cols[0].y * b.cols[i].x + a.cols[1].y * b.cols[i].y + a.cols[2].y * b.cols[i].z,
+            a.cols[0].z * b.cols[i].x + a.cols[1].z * b.cols[i].y + a.cols[2].z * b.cols[i].z,
+        );
+    }
+
+    // Transform translation: a * b.translation + a.translation
+    result.cols[3] = Vec3::new(
+        a.cols[0].x * b.cols[3].x + a.cols[1].x * b.cols[3].y + a.cols[2].x * b.cols[3].z + a.cols[3].x,
+        a.cols[0].y * b.cols[3].x + a.cols[1].y * b.cols[3].y + a.cols[2].y * b.cols[3].z + a.cols[3].y,
+        a.cols[0].z * b.cols[3].x + a.cols[1].z * b.cols[3].y + a.cols[2].z * b.cols[3].z + a.cols[3].z,
+    );
+
+    result
+}
+
+/// Convert Euler angles (in degrees) to quaternion
+/// This is a simplified version that assumes XYZ rotation order
+fn euler_to_quat(euler_deg: Vec3) -> Quat {
+    // Convert degrees to radians
+    let x = euler_deg.x.to_radians();
+    let y = euler_deg.y.to_radians();
+    let z = euler_deg.z.to_radians();
+
+    // Compute half angles
+    let cx = (x * 0.5).cos();
+    let sx = (x * 0.5).sin();
+    let cy = (y * 0.5).cos();
+    let sy = (y * 0.5).sin();
+    let cz = (z * 0.5).cos();
+    let sz = (z * 0.5).sin();
+
+    // Compute quaternion for XYZ order: qz * qy * qx
+    Quat {
+        w: cx * cy * cz + sx * sy * sz,
+        x: sx * cy * cz - cx * sy * sz,
+        y: cx * sy * cz + sx * cy * sz,
+        z: cx * cy * sz - sx * sy * cz,
+    }
 }
 
 // =============================================================================
@@ -868,6 +1234,7 @@ pub fn load_memory(data: &[u8], opts: &SceneOpts) -> Result<Scene> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::binary::Value;
 
     #[test]
     fn test_scene_builder_new() {
@@ -890,5 +1257,110 @@ mod tests {
             SceneBuilder::name_to_element_type("Geometry", ""),
             ElementType::Mesh
         );
+    }
+
+    #[test]
+    fn test_transform_to_matrix_identity() {
+        let builder = SceneBuilder::new();
+        let transform = Transform::IDENTITY;
+        let matrix = builder.transform_to_matrix(transform);
+
+        // Check diagonal elements are 1.0
+        assert!((matrix.at(0, 0) - 1.0).abs() < 1e-10);
+        assert!((matrix.at(1, 1) - 1.0).abs() < 1e-10);
+        assert!((matrix.at(2, 2) - 1.0).abs() < 1e-10);
+
+        // Check translation is zero
+        assert_eq!(matrix.cols[3].x, 0.0);
+        assert_eq!(matrix.cols[3].y, 0.0);
+        assert_eq!(matrix.cols[3].z, 0.0);
+    }
+
+    #[test]
+    fn test_euler_to_quat_identity() {
+        let quat = euler_to_quat(Vec3::ZERO);
+        assert!((quat.w - 1.0).abs() < 1e-10);
+        assert!(quat.x.abs() < 1e-10);
+        assert!(quat.y.abs() < 1e-10);
+        assert!(quat.z.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_matrix_multiplication_identity() {
+        let m1 = Matrix::IDENTITY;
+        let m2 = Matrix::IDENTITY;
+        let result = matrix_mul(&m1, &m2);
+
+        assert!((result.at(0, 0) - 1.0).abs() < 1e-10);
+        assert!((result.at(1, 1) - 1.0).abs() < 1e-10);
+        assert!((result.at(2, 2) - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_property_parsing() {
+        let mut builder = SceneBuilder::new();
+
+        // Create a simple property node
+        let mut node = crate::binary::FbxNode::new("P".to_string());
+        node.values.push(Value::String(FbxString::new("TestProp")));
+        node.values.push(Value::String(FbxString::new("double")));
+        node.values.push(Value::String(FbxString::new("Number")));
+        node.values.push(Value::String(FbxString::new("")));
+        node.values.push(Value::Number { i: 0, f: 42.5 });
+
+        let prop = builder.parse_property_binary(&node).unwrap();
+        assert_eq!(prop.name.as_str(), "TestProp");
+        match prop.value {
+            PropValue::Number(v) => assert!((v - 42.5).abs() < 1e-10),
+            _ => panic!("Expected number property"),
+        }
+    }
+
+    #[test]
+    fn test_extract_transform_from_props() {
+        let builder = SceneBuilder::new();
+
+        let mut props = Props::new();
+        props.props.push(Prop {
+            name: FbxString::new("Lcl Translation"),
+            value: PropValue::Vec3(Vec3::new(1.0, 2.0, 3.0)),
+            flags: PropFlags {
+                animated: false,
+                user_defined: false,
+                hidden: false,
+                lock: false,
+                mute: false,
+                synthetic: false,
+                no_value: false,
+                not_found: false,
+                connected: false,
+                overridden: false,
+            },
+        });
+
+        props.props.push(Prop {
+            name: FbxString::new("Lcl Scaling"),
+            value: PropValue::Vec3(Vec3::new(2.0, 2.0, 2.0)),
+            flags: PropFlags {
+                animated: false,
+                user_defined: false,
+                hidden: false,
+                lock: false,
+                mute: false,
+                synthetic: false,
+                no_value: false,
+                not_found: false,
+                connected: false,
+                overridden: false,
+            },
+        });
+
+        let transform = builder.extract_local_transform(&props);
+        assert_eq!(transform.translation.x, 1.0);
+        assert_eq!(transform.translation.y, 2.0);
+        assert_eq!(transform.translation.z, 3.0);
+        assert_eq!(transform.scale.x, 2.0);
+        assert_eq!(transform.scale.y, 2.0);
+        assert_eq!(transform.scale.z, 2.0);
     }
 }

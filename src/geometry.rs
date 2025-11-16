@@ -11,7 +11,7 @@
 
 use crate::error::{Error, Result};
 use crate::types::{
-    Face, Mesh, Matrix, Real, SkinDeformer, Vec2, Vec3, VertexAttrib,
+    Face, Mesh, Matrix, Real, SkinDeformer, SkinVertex, SkinWeight, Vec2, Vec3, VertexAttrib,
 };
 use std::collections::HashMap;
 

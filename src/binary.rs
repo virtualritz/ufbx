@@ -412,8 +412,8 @@ impl<R: Read> BinaryParser<R> {
         self.reader.read_exact(&mut name_bytes)?;
         self.offset += len as u64;
 
-        String::from_utf8(name_bytes)
-            .map_err(|_| Error::InvalidUtf8 { offset: self.offset as usize })
+        // Use lossy UTF-8 conversion - FBX files may contain non-UTF-8 data
+        Ok(String::from_utf8_lossy(&name_bytes).into_owned())
     }
 
     /// Read a single property value
@@ -515,8 +515,8 @@ impl<R: Read> BinaryParser<R> {
                 self.reader.read_exact(&mut string_bytes)?;
                 self.offset += len as u64;
 
-                let string = String::from_utf8(string_bytes)
-                    .map_err(|_| Error::InvalidUtf8 { offset: self.offset as usize })?;
+                // Use lossy UTF-8 conversion - FBX files may contain non-UTF-8 data
+                let string = String::from_utf8_lossy(&string_bytes).into_owned();
 
                 Ok(Some(Value::String(FbxString::new(string))))
             }
