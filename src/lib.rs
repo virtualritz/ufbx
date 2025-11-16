@@ -39,13 +39,13 @@
 
 pub mod error;         // Error types and Result
 pub mod types;         // FBX scene data structures (Scene, Node, Mesh, etc.)
-// pub mod binary;        // FBX binary format parser (TODO)
-// pub mod ascii;         // FBX ASCII format parser (TODO)
+pub mod binary;        // FBX binary format parser
+pub mod ascii;         // FBX ASCII format parser
 // pub mod scene;         // Scene graph construction from parsed data (TODO)
 
 // Optional feature modules
-// #[cfg(feature = "obj-support")]
-// pub mod obj;           // Wavefront OBJ/MTL parser (TODO)
+#[cfg(feature = "obj-support")]
+pub mod obj;           // Wavefront OBJ/MTL parser
 
 // #[cfg(feature = "nurbs")]
 // pub mod nurbs;         // NURBS curve/surface evaluation (TODO)
