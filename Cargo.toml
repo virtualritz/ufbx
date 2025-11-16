@@ -1,0 +1,47 @@
+[package]
+name = "ufbx"
+version = "0.21.2"
+edition = "2021"
+authors = ["Samuli Raivio", "Contributors"]
+license = "MIT OR Unlicense"
+description = "Pure Rust FBX file loader - no C/C++ toolchain required"
+repository = "https://github.com/ufbx/ufbx"
+readme = "README.md"
+keywords = ["fbx", "3d", "graphics", "gamedev", "format"]
+categories = ["parser-implementations", "graphics", "game-development"]
+
+[dependencies]
+# No dependencies for core functionality - pure Rust implementation
+
+[dev-dependencies]
+# Testing dependencies will be added as needed
+
+[features]
+default = ["std"]
+std = []
+# Feature flags for optional components
+no-libc = []
+deflate = []
+obj-support = []
+nurbs = []
+subdivision = []
+geometry-cache = []
+
+[lib]
+name = "ufbx"
+path = "src/lib.rs"
+
+[[example]]
+name = "load_scene"
+path = "examples/load_scene.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[profile.dev]
+opt-level = 0
+
+[profile.test]
+opt-level = 2
