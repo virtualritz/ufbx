@@ -39,29 +39,29 @@
 
 pub mod error;         // Error types and Result
 pub mod types;         // FBX scene data structures (Scene, Node, Mesh, etc.)
-pub mod binary;        // FBX binary format parser
-pub mod ascii;         // FBX ASCII format parser
-pub mod scene;         // Scene graph construction from parsed data
+// pub mod binary;        // FBX binary format parser (TODO)
+// pub mod ascii;         // FBX ASCII format parser (TODO)
+// pub mod scene;         // Scene graph construction from parsed data (TODO)
 
 // Optional feature modules
-#[cfg(feature = "obj-support")]
-pub mod obj;           // Wavefront OBJ/MTL parser
+// #[cfg(feature = "obj-support")]
+// pub mod obj;           // Wavefront OBJ/MTL parser (TODO)
 
-#[cfg(feature = "nurbs")]
-pub mod nurbs;         // NURBS curve/surface evaluation
+// #[cfg(feature = "nurbs")]
+// pub mod nurbs;         // NURBS curve/surface evaluation (TODO)
 
-#[cfg(feature = "subdivision")]
-pub mod subdivision;   // Catmull-Clark subdivision surfaces
+// #[cfg(feature = "subdivision")]
+// pub mod subdivision;   // Catmull-Clark subdivision surfaces (TODO)
 
-pub mod geometry;      // Mesh processing (triangulation, skinning, topology)
-pub mod animation;     // Animation curve evaluation and blending
+// pub mod geometry;      // Mesh processing (triangulation, skinning, topology) (TODO)
+// pub mod animation;     // Animation curve evaluation and blending (TODO)
 
 // Re-exports for convenience
 pub use error::{Error, Result};
 pub use types::*;
 
 // Public API functions
-pub use scene::{load_file, load_memory};
+// pub use scene::{load_file, load_memory};
 
 /// Library version information
 pub const VERSION_MAJOR: u32 = 0;

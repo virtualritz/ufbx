@@ -1,0 +1,1 @@
+//! Binary parser (stub)
