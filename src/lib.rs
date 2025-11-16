@@ -13,12 +13,18 @@
 //!
 //! ## Example
 //!
-//! ```rust,ignore
-//! use ufbx::{Mesh, Scene};
+//! ```rust,no_run
+//! use ufbx::{load_file, Scene};
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Scene loading API coming soon
-//!     // let scene = load_file("model.fbx")?;
+//!     let scene = load_file("model.fbx", &Default::default())?;
+//!
+//!     for node in &scene.nodes {
+//!         if !node.is_root {
+//!             println!("Object: {}", node.name);
+//!         }
+//!     }
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -32,27 +38,27 @@ pub mod error;         // Error types and Result
 pub mod types;         // FBX scene data structures (Scene, Node, Mesh, etc.)
 pub mod binary;        // FBX binary format parser
 pub mod ascii;         // FBX ASCII format parser
-// pub mod scene;         // Scene graph construction from parsed data (TODO)
+pub mod scene;         // Scene graph construction from parsed data
 
 // Optional feature modules
 #[cfg(feature = "obj-support")]
 pub mod obj;           // Wavefront OBJ/MTL parser
 
-// #[cfg(feature = "nurbs")]
-// pub mod nurbs;         // NURBS curve/surface evaluation and tessellation (TODO)
+#[cfg(feature = "nurbs")]
+pub mod nurbs;         // NURBS curve/surface evaluation
 
 #[cfg(feature = "subdivision")]
 pub mod subdivision;   // Catmull-Clark subdivision surfaces
 
-// pub mod geometry;      // Mesh processing (triangulation, skinning, topology) (TODO)
-// pub mod animation;     // Animation curve evaluation and blending (TODO)
+pub mod geometry;      // Mesh processing (triangulation, skinning, topology)
+pub mod animation;     // Animation curve evaluation and blending
 
 // Re-exports for convenience
 pub use error::{Error, Result};
 pub use types::*;
 
-// Public API functions
-// pub use scene::{load_file, load_memory, SceneOpts, SceneBuilder};
+// Public API functions (implementation below)
+pub use scene::{load_file, load_memory, SceneOpts, SceneBuilder};
 
 /// Library version information
 pub const VERSION_MAJOR: u32 = 0;

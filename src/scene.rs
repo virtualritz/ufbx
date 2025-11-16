@@ -223,7 +223,7 @@ impl SceneBuilder {
 
         // Read the document structure
         builder.read_binary_header(&doc)?;
-        builder.process_binary_nodes(&doc.nodes)?;
+        builder.process_binary_nodes(&doc.root.children)?;
         builder.resolve_connections()?;
         builder.build_hierarchy()?;
         builder.finalize()?;
@@ -292,24 +292,24 @@ impl SceneBuilder {
         let type_name = node.name.clone();
 
         // First property is always the FBX ID
-        let fbx_id = if !node.properties.is_empty() {
+        let fbx_id = if !node.values.is_empty() {
             // Parse FBX ID from first property
-            0  // TODO: Extract from node.properties[0]
+            0  // TODO: Extract from node.values[0]
         } else {
-            return Err(Error::InvalidData("Object node missing FBX ID".into()));
+            return Err(Error::unknown("Object node missing FBX ID"));
         };
 
         // Second property is name (may be "Name::Type" in ASCII, "Name\x00\x01Type" in binary)
-        let (name, sub_type) = if node.properties.len() > 1 {
-            // TODO: Split name/type from node.properties[1]
+        let (name, sub_type) = if node.values.len() > 1 {
+            // TODO: Split name/type from node.values[1]
             ("".to_string(), "".to_string())
         } else {
             ("".to_string(), "".to_string())
         };
 
         // Third property (if present) is sub-type
-        let sub_type = if node.properties.len() > 2 {
-            // TODO: Extract from node.properties[2]
+        let sub_type = if node.values.len() > 2 {
+            // TODO: Extract from node.values[2]
             sub_type
         } else {
             sub_type
@@ -368,7 +368,18 @@ impl SceneBuilder {
         Ok(Prop {
             name: FbxString::new(""),
             value: PropValue::Integer(0),
-            flags: PropFlags::empty(),
+            flags: PropFlags {
+                animated: false,
+                user_defined: false,
+                hidden: false,
+                lock: false,
+                mute: false,
+                synthetic: false,
+                no_value: false,
+                not_found: false,
+                connected: false,
+                overridden: false,
+            },
         })
     }
 
@@ -383,8 +394,8 @@ impl SceneBuilder {
 
     fn parse_connection_binary(&mut self, node: &BinaryNode) -> Result<()> {
         // Connection format: C: "OO"|"OP"|"PP", SrcId, DstId [, SrcProp, DstProp]
-        if node.properties.len() < 3 {
-            return Err(Error::InvalidData("Connection node has too few properties".into()));
+        if node.values.len() < 3 {
+            return Err(Error::unknown("Connection node has too few properties"));
         }
 
         // TODO: Parse connection type, IDs, and properties
@@ -483,7 +494,7 @@ impl SceneBuilder {
                     dst_prop: conn.dst_prop.as_ref().map(|s| FbxString::new(s.clone())),
                 });
             } else if self.opts.strict {
-                return Err(Error::InvalidData("Connection references non-existent element".into()));
+                return Err(Error::unknown("Connection references non-existent element"));
             }
             // In non-strict mode, skip invalid connections
         }
@@ -535,9 +546,7 @@ impl SceneBuilder {
                 geometry_transform_helper: None,
                 scale_helper: None,
                 local_transform: Transform::IDENTITY,
-                world_transform: Transform::IDENTITY,
                 geometry_transform: Transform::IDENTITY,
-                adjust_transform: Transform::IDENTITY,
                 node_to_parent: Matrix::IDENTITY,
                 node_to_world: Matrix::IDENTITY,
                 geometry_to_node: Matrix::IDENTITY,
@@ -549,7 +558,24 @@ impl SceneBuilder {
                 visible: true,
                 rotation_order: RotationOrder::XYZ,
                 euler_rotation: Vec3::ZERO,
+                original_inherit_mode: InheritMode::Normal,
+                inherit_scale: Vec3::ONE,
+                inherit_scale_node: None,
+                unscaled_node_to_world: Matrix::IDENTITY,
+                adjust_pre_translation: Vec3::ZERO,
+                adjust_pre_rotation: Quat::IDENTITY,
+                adjust_pre_scale: 1.0,
+                adjust_post_rotation: Quat::IDENTITY,
+                adjust_post_scale: 1.0,
+                adjust_translation_scale: 1.0,
+                adjust_mirror_axis: MirrorAxis::None,
                 materials: vec![],
+                bind_pose: None,
+                has_geometry_transform: false,
+                has_adjust_transform: false,
+                has_root_adjust_transform: false,
+            is_scale_compensate_parent: false,
+            node_depth: 0,
             });
             self.scene.root_node = root_idx;
             self.element_map.insert(0, root_idx);
@@ -559,7 +585,9 @@ impl SceneBuilder {
 
     fn create_typed_elements(&mut self) -> Result<()> {
         // Convert raw ElementData into typed structures (Node, Mesh, Material, etc.)
-        for data in &self.elements {
+        // Clone the elements to avoid borrow checker issues
+        let elements_copy = self.elements.clone();
+        for data in &elements_copy {
             match data.element_type {
                 ElementType::Node => self.create_node(data)?,
                 ElementType::Mesh => self.create_mesh(data)?,
@@ -569,7 +597,7 @@ impl SceneBuilder {
                 _ => {
                     // For now, skip unknown types or add to unknowns list
                     if self.opts.strict {
-                        return Err(Error::InvalidData(format!("Unknown element type: {:?}", data.element_type)));
+                        return Err(Error::unknown(format!("Unknown element type: {:?}", data.element_type)));
                     }
                 }
             }
@@ -600,21 +628,36 @@ impl SceneBuilder {
             geometry_transform_helper: None,
             scale_helper: None,
             local_transform: self.extract_local_transform(&data.props),
-            world_transform: Transform::IDENTITY,
             geometry_transform: Transform::IDENTITY,
-            adjust_transform: Transform::IDENTITY,
             node_to_parent: Matrix::IDENTITY,
             node_to_world: Matrix::IDENTITY,
             geometry_to_node: Matrix::IDENTITY,
             geometry_to_world: Matrix::IDENTITY,
             inherit_mode: InheritMode::Normal,
+            original_inherit_mode: InheritMode::Normal,
+            inherit_scale: Vec3::ONE,
+            inherit_scale_node: None,
             is_root: false,
             is_geometry_transform_helper: false,
             is_scale_helper: false,
             visible: true,
             rotation_order: RotationOrder::XYZ,
             euler_rotation: Vec3::ZERO,
+            unscaled_node_to_world: Matrix::IDENTITY,
+            adjust_pre_translation: Vec3::ZERO,
+            adjust_pre_rotation: Quat::IDENTITY,
+            adjust_pre_scale: 1.0,
+            adjust_post_rotation: Quat::IDENTITY,
+            adjust_post_scale: 1.0,
+            adjust_translation_scale: 1.0,
+            adjust_mirror_axis: MirrorAxis::None,
             materials: vec![],
+            bind_pose: None,
+            has_geometry_transform: false,
+            has_adjust_transform: false,
+            has_root_adjust_transform: false,
+            is_scale_compensate_parent: false,
+            node_depth: 0,
         };
 
         let idx = self.scene.nodes.len();
@@ -790,11 +833,11 @@ pub fn load_file(path: &str, opts: &SceneOpts) -> Result<Scene> {
     use std::io::Read;
 
     let mut file = File::open(path)
-        .map_err(|e| Error::Io(e.to_string()))?;
+        .map_err(|e| Error::io(e.to_string()))?;
 
     let mut data = Vec::new();
     file.read_to_end(&mut data)
-        .map_err(|e| Error::Io(e.to_string()))?;
+        .map_err(|e| Error::io(e.to_string()))?;
 
     load_memory(&data, opts)
 }
@@ -803,7 +846,7 @@ pub fn load_file(path: &str, opts: &SceneOpts) -> Result<Scene> {
 pub fn load_memory(data: &[u8], opts: &SceneOpts) -> Result<Scene> {
     // Detect format
     if data.len() < 27 {
-        return Err(Error::InvalidData("File too small".into()));
+        return Err(Error::unknown("File too small"));
     }
 
     // Check for binary magic
@@ -814,7 +857,7 @@ pub fn load_memory(data: &[u8], opts: &SceneOpts) -> Result<Scene> {
     } else {
         // Try ASCII
         let text = std::str::from_utf8(data)
-            .map_err(|_| Error::InvalidData("Invalid UTF-8 in ASCII FBX".into()))?;
+            .map_err(|_| Error::unknown("Invalid UTF-8 in ASCII FBX"))?;
         let nodes = crate::ascii::parse_ascii(text)?;
         // TODO: Extract version from ASCII header
         let version = 7400; // Default version
