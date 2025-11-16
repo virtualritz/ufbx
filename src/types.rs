@@ -1370,6 +1370,86 @@ impl Default for Scene {
 }
 
 // =============================================================================
+// Default Implementations
+// =============================================================================
+
+impl Default for Mesh {
+    fn default() -> Self {
+        Self {
+            element: Element::new("", ElementType::Mesh),
+            instances: Vec::new(),
+            num_vertices: 0,
+            num_indices: 0,
+            num_faces: 0,
+            num_triangles: 0,
+            num_edges: 0,
+            max_face_triangles: 0,
+            num_empty_faces: 0,
+            num_point_faces: 0,
+            num_line_faces: 0,
+            faces: Vec::new(),
+            face_smoothing: Vec::new(),
+            face_material: Vec::new(),
+            face_group: Vec::new(),
+            face_hole: Vec::new(),
+            edges: Vec::new(),
+            edge_smoothing: Vec::new(),
+            edge_crease: Vec::new(),
+            edge_visibility: Vec::new(),
+            vertex_indices: Vec::new(),
+            vertices: Vec::new(),
+            vertex_first_index: Vec::new(),
+            vertex_position: VertexAttrib::default(),
+            vertex_normal: VertexAttrib::default(),
+            vertex_uv: VertexAttrib::default(),
+            vertex_tangent: VertexAttrib::default(),
+            vertex_bitangent: VertexAttrib::default(),
+            vertex_color: VertexAttrib::default(),
+            vertex_crease: VertexAttrib::default(),
+            uv_sets: Vec::new(),
+            color_sets: Vec::new(),
+            materials: Vec::new(),
+            face_groups: Vec::new(),
+            material_parts: Vec::new(),
+            face_group_parts: Vec::new(),
+            material_part_usage_order: Vec::new(),
+            skinned_is_local: false,
+            skinned_position: VertexAttrib::default(),
+            skinned_normal: VertexAttrib::default(),
+            skin_deformers: Vec::new(),
+            blend_deformers: Vec::new(),
+            cache_deformers: Vec::new(),
+            all_deformers: Vec::new(),
+            subdivision_preview_levels: 0,
+            subdivision_render_levels: 0,
+            subdivision_display_mode: SubdivisionDisplayMode::Disabled,
+            subdivision_boundary: SubdivisionBoundary::Default,
+            subdivision_uv_boundary: SubdivisionBoundary::Default,
+            reversed_winding: false,
+            generated_normals: false,
+            subdivision_evaluated: false,
+            from_tessellated_nurbs: false,
+        }
+    }
+}
+
+impl Default for SkinDeformer {
+    fn default() -> Self {
+        Self {
+            element: Element::new("", ElementType::SkinDeformer),
+            skinning_method: SkinningMethod::Linear,
+            clusters: Vec::new(),
+            vertices: Vec::new(),
+            weights: Vec::new(),
+            max_weights_per_vertex: 0,
+            num_dq_weights: 0,
+            dq_vertices: Vec::new(),
+            dq_weights: Vec::new(),
+        }
+    }
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 

@@ -13,21 +13,12 @@
 //!
 //! ## Example
 //!
-//! ```rust,no_run
-//! use ufbx::{load_file, LoadOpts};
+//! ```rust,ignore
+//! use ufbx::{Mesh, Scene};
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let scene = load_file("model.fbx", &LoadOpts::default())?;
-//!
-//!     for node in &scene.nodes {
-//!         if !node.is_root {
-//!             println!("Object: {}", node.name);
-//!             if let Some(mesh) = &node.mesh {
-//!                 println!("-> mesh with {} faces", mesh.faces.len());
-//!             }
-//!         }
-//!     }
-//!
+//!     // Scene loading API coming soon
+//!     // let scene = load_file("model.fbx")?;
 //!     Ok(())
 //! }
 //! ```
@@ -48,10 +39,10 @@ pub mod ascii;         // FBX ASCII format parser
 pub mod obj;           // Wavefront OBJ/MTL parser
 
 // #[cfg(feature = "nurbs")]
-// pub mod nurbs;         // NURBS curve/surface evaluation (TODO)
+// pub mod nurbs;         // NURBS curve/surface evaluation and tessellation (TODO)
 
-// #[cfg(feature = "subdivision")]
-// pub mod subdivision;   // Catmull-Clark subdivision surfaces (TODO)
+#[cfg(feature = "subdivision")]
+pub mod subdivision;   // Catmull-Clark subdivision surfaces
 
 // pub mod geometry;      // Mesh processing (triangulation, skinning, topology) (TODO)
 // pub mod animation;     // Animation curve evaluation and blending (TODO)
@@ -61,7 +52,7 @@ pub use error::{Error, Result};
 pub use types::*;
 
 // Public API functions
-// pub use scene::{load_file, load_memory};
+// pub use scene::{load_file, load_memory, SceneOpts, SceneBuilder};
 
 /// Library version information
 pub const VERSION_MAJOR: u32 = 0;

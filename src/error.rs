@@ -339,6 +339,14 @@ impl Error {
         }
     }
 
+    /// Create an error for invalid input parameters
+    pub fn invalid_input(message: impl Into<String>) -> Self {
+        Error::Unknown {
+            description: format!("Invalid input: {}", message.into()),
+            stack: None,
+        }
+    }
+
     /// Get a static string description of the error type
     ///
     /// This matches the C API's error descriptions and is useful for
