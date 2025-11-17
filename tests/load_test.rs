@@ -3,6 +3,91 @@
 use ufbx::{load_file, load_memory, SceneOpts};
 
 #[test]
+fn test_mesh_data_extraction() {
+    // Test that mesh vertex data is being extracted correctly
+    let result = load_file(
+        "data/blender_272_cube_7400_binary.fbx",
+        &SceneOpts::default()
+    );
+
+    match result {
+        Ok(scene) => {
+            println!("Loaded scene for mesh data extraction test");
+            println!("  Nodes: {}", scene.nodes.len());
+            println!("  Meshes: {}", scene.meshes.len());
+
+            // Check that we have meshes
+            assert!(scene.meshes.len() > 0, "Scene should have at least one mesh");
+
+            // Check each mesh
+            for (i, mesh) in scene.meshes.iter().enumerate() {
+                println!("\nMesh #{}: {}", i, mesh.element.name.as_str());
+                println!("  Vertices: {}", mesh.num_vertices);
+                println!("  Indices: {}", mesh.num_indices);
+                println!("  Faces: {}", mesh.num_faces);
+                println!("  Position exists: {}", mesh.vertex_position.exists);
+
+                // A cube should have 8 vertices (or more if subdivided)
+                if mesh.element.name.as_str().contains("Cube") {
+                    assert!(mesh.num_vertices >= 8, "Cube should have at least 8 vertices");
+                    assert!(mesh.num_faces >= 6, "Cube should have at least 6 faces");
+                    assert!(mesh.vertex_position.exists, "Cube should have position data");
+                }
+
+                // Verify vertex data consistency
+                if mesh.vertex_position.exists {
+                    assert_eq!(mesh.vertices.len(), mesh.num_vertices,
+                        "vertices array length should match num_vertices");
+                    assert_eq!(mesh.vertex_position.values.len(), mesh.num_vertices,
+                        "vertex_position.values length should match num_vertices");
+                }
+
+                // Verify face data consistency
+                if !mesh.faces.is_empty() {
+                    for face in &mesh.faces {
+                        assert!(face.num_indices >= 3, "Face should have at least 3 indices");
+                        let end_idx = face.index_begin + face.num_indices;
+                        assert!(end_idx <= mesh.vertex_indices.len() as u32,
+                            "Face indices should be within vertex_indices bounds");
+                    }
+                }
+            }
+
+            // Check node hierarchy
+            println!("\nNode hierarchy:");
+            for (i, node) in scene.nodes.iter().enumerate() {
+                let parent_str = if let Some(parent) = node.parent {
+                    format!("parent={}", parent)
+                } else {
+                    "root".to_string()
+                };
+
+                let mesh_str = if let Some(mesh_idx) = node.mesh {
+                    format!("mesh={}", mesh_idx)
+                } else {
+                    "none".to_string()
+                };
+
+                println!("  Node #{}: {} ({}, {})",
+                    i, node.element.name.as_str(), parent_str, mesh_str);
+
+                // Verify parent relationships
+                if let Some(parent_idx) = node.parent {
+                    assert!(parent_idx < scene.nodes.len(), "Parent index should be valid");
+                    assert!(scene.nodes[parent_idx].children.contains(&i),
+                        "Parent should have this node in its children list");
+                }
+            }
+
+            println!("\n✓ Mesh data extraction test passed!");
+        }
+        Err(e) => {
+            panic!("Failed to load scene for mesh data extraction: {:?}", e);
+        }
+    }
+}
+
+#[test]
 fn test_load_simple_cube() {
     // Test loading a simple cube FBX file
     let result = load_file(

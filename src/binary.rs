@@ -321,9 +321,97 @@ impl<R: Read> BinaryParser<R> {
 
         // Read properties
         let properties_start = self.offset;
-        for _ in 0..num_properties.min(MAX_NON_ARRAY_VALUES as u64) {
-            if let Some(value) = self.read_property()? {
-                node.values.push(value);
+        for _ in 0..num_properties {
+            // Read type code
+            let type_code = self.reader.read_u8()? as char;
+            self.offset += 1;
+
+            match type_code {
+                // Array property types (lowercase)
+                'b' | 'c' | 'i' | 'l' | 'f' | 'd' => {
+                    // Read array directly (type_code already consumed)
+                    let array = self.read_array(type_code)?;
+                    node.array = Some(array);
+                }
+                // Scalar property types - read inline
+                'C' | 'B' | 'Z' => {
+                    let val = self.reader.read_u8()?;
+                    self.offset += 1;
+                    if node.values.len() < MAX_NON_ARRAY_VALUES {
+                        node.values.push(Value::Number { i: val as i64, f: val as f64 });
+                    }
+                }
+                'Y' => {
+                    let val = if self.file_big_endian {
+                        self.reader.read_i16::<BigEndian>()?
+                    } else {
+                        self.reader.read_i16::<LittleEndian>()?
+                    };
+                    self.offset += 2;
+                    if node.values.len() < MAX_NON_ARRAY_VALUES {
+                        node.values.push(Value::Number { i: val as i64, f: val as f64 });
+                    }
+                }
+                'I' => {
+                    let val = if self.file_big_endian {
+                        self.reader.read_i32::<BigEndian>()?
+                    } else {
+                        self.reader.read_i32::<LittleEndian>()?
+                    };
+                    self.offset += 4;
+                    if node.values.len() < MAX_NON_ARRAY_VALUES {
+                        node.values.push(Value::Number { i: val as i64, f: val as f64 });
+                    }
+                }
+                'L' => {
+                    let val = if self.file_big_endian {
+                        self.reader.read_i64::<BigEndian>()?
+                    } else {
+                        self.reader.read_i64::<LittleEndian>()?
+                    };
+                    self.offset += 8;
+                    if node.values.len() < MAX_NON_ARRAY_VALUES {
+                        node.values.push(Value::Number { i: val, f: val as f64 });
+                    }
+                }
+                'F' => {
+                    let val = if self.file_big_endian {
+                        self.reader.read_f32::<BigEndian>()?
+                    } else {
+                        self.reader.read_f32::<LittleEndian>()?
+                    };
+                    self.offset += 4;
+                    if node.values.len() < MAX_NON_ARRAY_VALUES {
+                        node.values.push(Value::Number { i: val as i64, f: val as f64 });
+                    }
+                }
+                'D' => {
+                    let val = if self.file_big_endian {
+                        self.reader.read_f64::<BigEndian>()?
+                    } else {
+                        self.reader.read_f64::<LittleEndian>()?
+                    };
+                    self.offset += 8;
+                    if node.values.len() < MAX_NON_ARRAY_VALUES {
+                        node.values.push(Value::Number { i: val as i64, f: val });
+                    }
+                }
+                'S' | 'R' => {
+                    let len = if self.file_big_endian {
+                        self.reader.read_u32::<BigEndian>()?
+                    } else {
+                        self.reader.read_u32::<LittleEndian>()?
+                    };
+                    self.offset += 4;
+                    let mut string_bytes = vec![0u8; len as usize];
+                    self.reader.read_exact(&mut string_bytes)?;
+                    self.offset += len as u64;
+                    let string = String::from_utf8_lossy(&string_bytes).into_owned();
+                    if node.values.len() < MAX_NON_ARRAY_VALUES {
+                        node.values.push(Value::String(FbxString::new(string)));
+                    }
+                }
+                _ => return Err(Error::unknown(format!("Unknown property type: {}", type_code))),
             }
         }
 

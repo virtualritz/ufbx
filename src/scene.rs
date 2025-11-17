@@ -77,6 +77,7 @@ struct ElementData {
     sub_type: String,
     name: String,
     props: Props,
+    fbx_node: Option<BinaryNode>,  // Store original FBX node for geometry extraction
 }
 
 /// Options for scene construction
@@ -350,6 +351,7 @@ impl SceneBuilder {
             sub_type,
             name,
             props,
+            fbx_node: Some(node.clone()),  // Store for geometry extraction
         });
 
         self.element_map.insert(fbx_id, element_idx);
@@ -779,9 +781,75 @@ impl SceneBuilder {
     }
 
     fn create_mesh(&mut self, data: &ElementData) -> Result<()> {
-        // Create basic mesh structure
-        // For now, just create an empty mesh - actual geometry parsing would require
-        // reading the FBX node arrays which we'll implement later
+        // Extract mesh geometry data from the FBX node
+        let (vertices, polygon_vertex_indices, normals, uvs, colors, faces, vertex_indices) =
+            if let Some(ref fbx_node) = data.fbx_node {
+                self.extract_mesh_geometry(fbx_node)?
+            } else {
+                // No FBX node (might be from ASCII), create empty mesh
+                (vec![], vec![], vec![], vec![], vec![], vec![], vec![])
+            };
+
+        let num_vertices = vertices.len();
+        let num_indices = vertex_indices.len();
+        let num_faces = faces.len();
+
+        // Build vertex position attribute
+        let vertex_position = if !vertices.is_empty() {
+            VertexAttrib {
+                exists: true,
+                values: vertices.clone(),
+                indices: (0..num_vertices as u32).collect(),
+                value_reals: 3,
+                unique_per_vertex: true,
+                values_w: vec![],
+            }
+        } else {
+            VertexAttrib::default()
+        };
+
+        // Build vertex normal attribute
+        let vertex_normal = if !normals.is_empty() {
+            VertexAttrib {
+                exists: true,
+                values: normals,
+                indices: (0..num_indices as u32).collect(),
+                value_reals: 3,
+                unique_per_vertex: false,
+                values_w: vec![],
+            }
+        } else {
+            VertexAttrib::default()
+        };
+
+        // Build vertex UV attribute
+        let vertex_uv = if !uvs.is_empty() {
+            VertexAttrib {
+                exists: true,
+                values: uvs,
+                indices: (0..num_indices as u32).collect(),
+                value_reals: 2,
+                unique_per_vertex: false,
+                values_w: vec![],
+            }
+        } else {
+            VertexAttrib::default()
+        };
+
+        // Build vertex color attribute
+        let vertex_color = if !colors.is_empty() {
+            VertexAttrib {
+                exists: true,
+                values: colors,
+                indices: (0..num_indices as u32).collect(),
+                value_reals: 4,
+                unique_per_vertex: false,
+                values_w: vec![],
+            }
+        } else {
+            VertexAttrib::default()
+        };
+
         let mesh = Mesh {
             element: Element {
                 name: FbxString::new(data.name.clone()),
@@ -793,16 +861,16 @@ impl SceneBuilder {
                 connections_dst: vec![],
             },
             instances: vec![],
-            num_vertices: 0,
-            num_indices: 0,
-            num_faces: 0,
-            num_triangles: 0,
+            num_vertices,
+            num_indices,
+            num_faces,
+            num_triangles: 0,  // TODO: Calculate from faces
             num_edges: 0,
             max_face_triangles: 0,
             num_empty_faces: 0,
             num_point_faces: 0,
             num_line_faces: 0,
-            faces: vec![],
+            faces,
             face_smoothing: vec![],
             face_material: vec![],
             face_group: vec![],
@@ -811,15 +879,15 @@ impl SceneBuilder {
             edge_smoothing: vec![],
             edge_crease: vec![],
             edge_visibility: vec![],
-            vertex_indices: vec![],
-            vertices: vec![],
+            vertex_indices,
+            vertices,
             vertex_first_index: vec![],
-            vertex_position: VertexAttrib::default(),
-            vertex_normal: VertexAttrib::default(),
-            vertex_uv: VertexAttrib::default(),
+            vertex_position,
+            vertex_normal,
+            vertex_uv,
             vertex_tangent: VertexAttrib::default(),
             vertex_bitangent: VertexAttrib::default(),
-            vertex_color: VertexAttrib::default(),
+            vertex_color,
             vertex_crease: VertexAttrib::default(),
             uv_sets: vec![],
             color_sets: vec![],
@@ -848,6 +916,229 @@ impl SceneBuilder {
 
         self.scene.meshes.push(mesh);
         Ok(())
+    }
+
+    fn extract_mesh_geometry(&self, fbx_node: &BinaryNode) -> Result<(Vec<Vec3>, Vec<i32>, Vec<Vec3>, Vec<Vec2>, Vec<Vec4>, Vec<Face>, Vec<u32>)> {
+        // Extract vertices (positions)
+        let vertices = self.read_vertex_positions(fbx_node)?;
+
+        // Extract polygon vertex indices
+        let polygon_vertex_indices = self.read_polygon_indices(fbx_node)?;
+
+        // Extract normals (optional)
+        let normals = self.read_vertex_normals(fbx_node)?;
+
+        // Extract UVs (optional)
+        let uvs = self.read_vertex_uvs(fbx_node)?;
+
+        // Extract vertex colors (optional)
+        let colors = self.read_vertex_colors(fbx_node)?;
+
+        // Build faces and vertex_indices from polygon_vertex_indices
+        let (faces, vertex_indices) = self.build_faces(&polygon_vertex_indices);
+
+        Ok((vertices, polygon_vertex_indices, normals, uvs, colors, faces, vertex_indices))
+    }
+
+    fn read_vertex_positions(&self, fbx_node: &BinaryNode) -> Result<Vec<Vec3>> {
+        // Find "Vertices" child node
+        for child in &fbx_node.children {
+            if child.name == "Vertices" {
+                if let Some(ref array) = child.array {
+                    return match &array.data {
+                        crate::binary::ArrayData::F64(data) => {
+                            // Convert flat array to Vec3s
+                            let mut positions = Vec::new();
+                            for chunk in data.chunks(3) {
+                                if chunk.len() == 3 {
+                                    positions.push(Vec3::new(chunk[0], chunk[1], chunk[2]));
+                                }
+                            }
+                            Ok(positions)
+                        }
+                        crate::binary::ArrayData::F32(data) => {
+                            let mut positions = Vec::new();
+                            for chunk in data.chunks(3) {
+                                if chunk.len() == 3 {
+                                    positions.push(Vec3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64));
+                                }
+                            }
+                            Ok(positions)
+                        }
+                        _ => Err(Error::unknown("Vertices array has wrong type")),
+                    };
+                }
+            }
+        }
+        Ok(vec![])
+    }
+
+    fn read_polygon_indices(&self, fbx_node: &BinaryNode) -> Result<Vec<i32>> {
+        // Find "PolygonVertexIndex" child node
+        for child in &fbx_node.children {
+            if child.name == "PolygonVertexIndex" {
+                if let Some(ref array) = child.array {
+                    return match &array.data {
+                        crate::binary::ArrayData::I32(data) => Ok(data.clone()),
+                        crate::binary::ArrayData::I64(data) => {
+                            Ok(data.iter().map(|&v| v as i32).collect())
+                        }
+                        _ => Err(Error::unknown("PolygonVertexIndex array has wrong type")),
+                    };
+                }
+            }
+        }
+        Ok(vec![])
+    }
+
+    fn read_vertex_normals(&self, fbx_node: &BinaryNode) -> Result<Vec<Vec3>> {
+        // Find "LayerElementNormal" child node
+        for child in &fbx_node.children {
+            if child.name == "LayerElementNormal" {
+                // Find "Normals" child within LayerElementNormal
+                for subchild in &child.children {
+                    if subchild.name == "Normals" {
+                        if let Some(ref array) = subchild.array {
+                            return match &array.data {
+                                crate::binary::ArrayData::F64(data) => {
+                                    let mut normals = Vec::new();
+                                    for chunk in data.chunks(3) {
+                                        if chunk.len() == 3 {
+                                            normals.push(Vec3::new(chunk[0], chunk[1], chunk[2]));
+                                        }
+                                    }
+                                    Ok(normals)
+                                }
+                                crate::binary::ArrayData::F32(data) => {
+                                    let mut normals = Vec::new();
+                                    for chunk in data.chunks(3) {
+                                        if chunk.len() == 3 {
+                                            normals.push(Vec3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64));
+                                        }
+                                    }
+                                    Ok(normals)
+                                }
+                                _ => Err(Error::unknown("Normals array has wrong type")),
+                            };
+                        }
+                    }
+                }
+            }
+        }
+        Ok(vec![])
+    }
+
+    fn read_vertex_uvs(&self, fbx_node: &BinaryNode) -> Result<Vec<Vec2>> {
+        // Find "LayerElementUV" child node
+        for child in &fbx_node.children {
+            if child.name == "LayerElementUV" {
+                // Find "UV" child within LayerElementUV
+                for subchild in &child.children {
+                    if subchild.name == "UV" {
+                        if let Some(ref array) = subchild.array {
+                            return match &array.data {
+                                crate::binary::ArrayData::F64(data) => {
+                                    let mut uvs = Vec::new();
+                                    for chunk in data.chunks(2) {
+                                        if chunk.len() == 2 {
+                                            uvs.push(Vec2::new(chunk[0], chunk[1]));
+                                        }
+                                    }
+                                    Ok(uvs)
+                                }
+                                crate::binary::ArrayData::F32(data) => {
+                                    let mut uvs = Vec::new();
+                                    for chunk in data.chunks(2) {
+                                        if chunk.len() == 2 {
+                                            uvs.push(Vec2::new(chunk[0] as f64, chunk[1] as f64));
+                                        }
+                                    }
+                                    Ok(uvs)
+                                }
+                                _ => Err(Error::unknown("UV array has wrong type")),
+                            };
+                        }
+                    }
+                }
+            }
+        }
+        Ok(vec![])
+    }
+
+    fn read_vertex_colors(&self, fbx_node: &BinaryNode) -> Result<Vec<Vec4>> {
+        // Find "LayerElementColor" child node
+        for child in &fbx_node.children {
+            if child.name == "LayerElementColor" {
+                // Find "Colors" child within LayerElementColor
+                for subchild in &child.children {
+                    if subchild.name == "Colors" {
+                        if let Some(ref array) = subchild.array {
+                            return match &array.data {
+                                crate::binary::ArrayData::F64(data) => {
+                                    let mut colors = Vec::new();
+                                    for chunk in data.chunks(4) {
+                                        if chunk.len() == 4 {
+                                            colors.push(Vec4::new(chunk[0], chunk[1], chunk[2], chunk[3]));
+                                        } else if chunk.len() == 3 {
+                                            // Some FBX files store RGB without alpha
+                                            colors.push(Vec4::new(chunk[0], chunk[1], chunk[2], 1.0));
+                                        }
+                                    }
+                                    Ok(colors)
+                                }
+                                crate::binary::ArrayData::F32(data) => {
+                                    let mut colors = Vec::new();
+                                    for chunk in data.chunks(4) {
+                                        if chunk.len() == 4 {
+                                            colors.push(Vec4::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64, chunk[3] as f64));
+                                        } else if chunk.len() == 3 {
+                                            colors.push(Vec4::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64, 1.0));
+                                        }
+                                    }
+                                    Ok(colors)
+                                }
+                                _ => Err(Error::unknown("Colors array has wrong type")),
+                            };
+                        }
+                    }
+                }
+            }
+        }
+        Ok(vec![])
+    }
+
+    fn build_faces(&self, polygon_vertex_indices: &[i32]) -> (Vec<Face>, Vec<u32>) {
+        // FBX polygon encoding: last index of each polygon is bitwise-negated
+        // Example: [0, 1, ~2, 3, 4, ~5] = triangle(0,1,2) + triangle(3,4,5)
+        // Negative encoding: ~n = -(n+1), so to get actual index: if idx < 0 { -(idx+1) } else { idx }
+
+        let mut faces = Vec::new();
+        let mut vertex_indices = Vec::new();
+        let mut current_face_start = 0u32;
+
+        for &poly_idx in polygon_vertex_indices {
+            // Decode the index
+            let actual_idx = if poly_idx < 0 {
+                // Last index of polygon (negative)
+                (-(poly_idx + 1)) as u32
+            } else {
+                poly_idx as u32
+            };
+
+            vertex_indices.push(actual_idx);
+
+            // If this was a negative index, end of polygon
+            if poly_idx < 0 {
+                let num_indices = vertex_indices.len() as u32 - current_face_start;
+                faces.push(Face {
+                    index_begin: current_face_start,
+                    num_indices,
+                });
+                current_face_start = vertex_indices.len() as u32;
+            }
+        }
+
+        (faces, vertex_indices)
     }
 
     fn create_light(&mut self, data: &ElementData) -> Result<()> {
@@ -979,14 +1270,134 @@ impl SceneBuilder {
     }
 
     fn build_node_hierarchy(&mut self) -> Result<()> {
-        // Use connections to build parent-child relationships
-        // For now, just a stub - TODO: properly build from connections
+        // Build parent-child relationships from connections
+        // We need to iterate over connections and find Object-Object connections
+        // where both src and dst are nodes
+
+        // First, build a mapping from element indices to node indices
+        let mut element_to_node: HashMap<usize, usize> = HashMap::new();
+        for (node_idx, node) in self.scene.nodes.iter().enumerate() {
+            element_to_node.insert(node.element.element_id as usize, node_idx);
+        }
+
+        // Clone connections to avoid borrow checker issues
+        let connections = self.scene.connections.clone();
+
+        for conn in &connections {
+            // Skip property connections (we only want Object-Object connections)
+            if conn.src_prop.is_some() || conn.dst_prop.is_some() {
+                continue;
+            }
+
+            // Check if both src and dst are nodes
+            let src_node_idx = element_to_node.get(&conn.src);
+            let dst_node_idx = element_to_node.get(&conn.dst);
+
+            if let (Some(&src_idx), Some(&dst_idx)) = (src_node_idx, dst_node_idx) {
+                // Skip self-connections (would create cycle)
+                if src_idx == dst_idx {
+                    continue;
+                }
+
+                // Connection from src to dst means dst is parent of src
+                // In FBX, connections are: C: "OO", child_id, parent_id
+
+                // Set parent relationship (only if not already set to avoid cycles)
+                if self.scene.nodes[src_idx].parent.is_none() {
+                    self.scene.nodes[src_idx].parent = Some(dst_idx);
+
+                    // Add to children list
+                    if !self.scene.nodes[dst_idx].children.contains(&src_idx) {
+                        self.scene.nodes[dst_idx].children.push(src_idx);
+                    }
+                }
+            }
+        }
+
+        // Attach any orphaned nodes to the root
+        let root_idx = self.scene.root_node;
+        for node_idx in 0..self.scene.nodes.len() {
+            if node_idx != root_idx && self.scene.nodes[node_idx].parent.is_none() {
+                self.scene.nodes[node_idx].parent = Some(root_idx);
+                if !self.scene.nodes[root_idx].children.contains(&node_idx) {
+                    self.scene.nodes[root_idx].children.push(node_idx);
+                }
+            }
+        }
+
         Ok(())
     }
 
     fn attach_attributes(&mut self) -> Result<()> {
-        // Use connections to attach meshes, lights, cameras to nodes
-        // TODO: properly attach from connections
+        // Attach meshes, lights, cameras to nodes using connections
+
+        // Build mappings from element indices to typed indices
+        let mut element_to_mesh: HashMap<usize, usize> = HashMap::new();
+        for (mesh_idx, mesh) in self.scene.meshes.iter().enumerate() {
+            element_to_mesh.insert(mesh.element.element_id as usize, mesh_idx);
+        }
+
+        let mut element_to_light: HashMap<usize, usize> = HashMap::new();
+        for (light_idx, light) in self.scene.lights.iter().enumerate() {
+            element_to_light.insert(light.element.element_id as usize, light_idx);
+        }
+
+        let mut element_to_camera: HashMap<usize, usize> = HashMap::new();
+        for (camera_idx, camera) in self.scene.cameras.iter().enumerate() {
+            element_to_camera.insert(camera.element.element_id as usize, camera_idx);
+        }
+
+        let mut element_to_node: HashMap<usize, usize> = HashMap::new();
+        for (node_idx, node) in self.scene.nodes.iter().enumerate() {
+            element_to_node.insert(node.element.element_id as usize, node_idx);
+        }
+
+        // Clone connections to avoid borrow checker issues
+        let connections = self.scene.connections.clone();
+
+        for conn in &connections {
+            // Skip property connections
+            if conn.src_prop.is_some() || conn.dst_prop.is_some() {
+                continue;
+            }
+
+            // Check if dst is a node
+            if let Some(&node_idx) = element_to_node.get(&conn.dst) {
+                // Check if src is a mesh, light, or camera
+                if let Some(&mesh_idx) = element_to_mesh.get(&conn.src) {
+                    // Attach mesh to node
+                    self.scene.nodes[node_idx].mesh = Some(mesh_idx);
+                    self.scene.nodes[node_idx].attrib = Some(conn.src);
+                    self.scene.nodes[node_idx].attrib_type = ElementType::Mesh;
+
+                    // Add node to mesh instances
+                    if !self.scene.meshes[mesh_idx].instances.contains(&node_idx) {
+                        self.scene.meshes[mesh_idx].instances.push(node_idx);
+                    }
+                } else if let Some(&light_idx) = element_to_light.get(&conn.src) {
+                    // Attach light to node
+                    self.scene.nodes[node_idx].light = Some(light_idx);
+                    self.scene.nodes[node_idx].attrib = Some(conn.src);
+                    self.scene.nodes[node_idx].attrib_type = ElementType::Light;
+
+                    // Add node to light instances
+                    if !self.scene.lights[light_idx].instances.contains(&node_idx) {
+                        self.scene.lights[light_idx].instances.push(node_idx);
+                    }
+                } else if let Some(&camera_idx) = element_to_camera.get(&conn.src) {
+                    // Attach camera to node
+                    self.scene.nodes[node_idx].camera = Some(camera_idx);
+                    self.scene.nodes[node_idx].attrib = Some(conn.src);
+                    self.scene.nodes[node_idx].attrib_type = ElementType::Camera;
+
+                    // Add node to camera instances
+                    if !self.scene.cameras[camera_idx].instances.contains(&node_idx) {
+                        self.scene.cameras[camera_idx].instances.push(node_idx);
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -1011,16 +1422,22 @@ impl SceneBuilder {
 
     fn compute_transforms(&mut self) -> Result<()> {
         // Depth-first traversal to compute world transforms
-        if let Some(root_idx) = Some(self.scene.root_node) {
-            self.compute_node_transform(root_idx, Matrix::IDENTITY)?;
-        }
+        let root_idx = self.scene.root_node;
+        let mut visited = vec![false; self.scene.nodes.len()];
+        self.compute_node_transform_safe(root_idx, Matrix::IDENTITY, &mut visited)?;
         Ok(())
     }
 
-    fn compute_node_transform(&mut self, node_idx: usize, parent_world: Matrix) -> Result<()> {
+    fn compute_node_transform_safe(&mut self, node_idx: usize, parent_world: Matrix, visited: &mut [bool]) -> Result<()> {
         if node_idx >= self.scene.nodes.len() {
             return Ok(());
         }
+
+        // Detect cycles - if we've already visited this node, skip it
+        if visited[node_idx] {
+            return Ok(());
+        }
+        visited[node_idx] = true;
 
         // Compute this node's world transform
         let local_matrix = self.transform_to_matrix(self.scene.nodes[node_idx].local_transform);
@@ -1031,7 +1448,7 @@ impl SceneBuilder {
         // Recurse to children
         let children: Vec<usize> = self.scene.nodes[node_idx].children.clone();
         for child_idx in children {
-            self.compute_node_transform(child_idx, world_matrix)?;
+            self.compute_node_transform_safe(child_idx, world_matrix, visited)?;
         }
 
         Ok(())
@@ -1096,17 +1513,19 @@ impl SceneBuilder {
     fn name_to_element_type(type_name: &str, sub_type: &str) -> ElementType {
         match type_name {
             "Model" => {
-                // Sub-type distinguishes different model types
-                match sub_type {
-                    "Mesh" => ElementType::Mesh,
-                    "Light" => ElementType::Light,
-                    "Camera" => ElementType::Camera,
-                    "Null" => ElementType::Node,
-                    "LimbNode" => ElementType::Bone,
-                    _ => ElementType::Node,
-                }
+                // All Model nodes are scene nodes, not geometry
+                // The sub_type tells us what kind of attribute they might have
+                ElementType::Node
             }
             "Geometry" => ElementType::Mesh,
+            "NodeAttribute" => {
+                // NodeAttribute can be Light, Camera, etc.
+                match sub_type {
+                    "Light" => ElementType::Light,
+                    "Camera" => ElementType::Camera,
+                    _ => ElementType::Unknown,
+                }
+            }
             "Material" => ElementType::Material,
             "Texture" => ElementType::Texture,
             "Video" => ElementType::Video,
@@ -1245,17 +1664,28 @@ mod tests {
 
     #[test]
     fn test_element_type_mapping() {
+        // All Model nodes are scene nodes (regardless of sub-type)
         assert_eq!(
             SceneBuilder::name_to_element_type("Model", "Mesh"),
-            ElementType::Mesh
+            ElementType::Node
         );
         assert_eq!(
-            SceneBuilder::name_to_element_type("Model", "Light"),
-            ElementType::Light
+            SceneBuilder::name_to_element_type("Model", "Null"),
+            ElementType::Node
         );
+        // Geometry nodes contain actual mesh data
         assert_eq!(
             SceneBuilder::name_to_element_type("Geometry", ""),
             ElementType::Mesh
+        );
+        // NodeAttribute contains lights, cameras, etc.
+        assert_eq!(
+            SceneBuilder::name_to_element_type("NodeAttribute", "Light"),
+            ElementType::Light
+        );
+        assert_eq!(
+            SceneBuilder::name_to_element_type("NodeAttribute", "Camera"),
+            ElementType::Camera
         );
     }
 
