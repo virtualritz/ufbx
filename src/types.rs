@@ -227,7 +227,7 @@ pub enum PropType {
 }
 
 /// Property flags
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PropFlags {
     pub animated: bool,
     pub user_defined: bool,

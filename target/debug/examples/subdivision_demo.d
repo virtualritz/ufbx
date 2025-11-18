@@ -1,1 +1,0 @@
-/home/user/ufbx/target/debug/examples/subdivision_demo: /home/user/ufbx/examples/subdivision_demo.rs /home/user/ufbx/src/ascii.rs /home/user/ufbx/src/binary.rs /home/user/ufbx/src/error.rs /home/user/ufbx/src/lib.rs /home/user/ufbx/src/obj.rs /home/user/ufbx/src/subdivision.rs /home/user/ufbx/src/types.rs

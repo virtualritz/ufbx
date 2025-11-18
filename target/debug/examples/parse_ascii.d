@@ -1,1 +1,0 @@
-/home/user/ufbx/target/debug/examples/parse_ascii: /home/user/ufbx/examples/parse_ascii.rs /home/user/ufbx/src/ascii.rs /home/user/ufbx/src/binary.rs /home/user/ufbx/src/error.rs /home/user/ufbx/src/lib.rs /home/user/ufbx/src/types.rs

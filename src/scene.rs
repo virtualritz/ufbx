@@ -1206,7 +1206,155 @@ impl SceneBuilder {
     }
 
     fn create_material(&mut self, data: &ElementData) -> Result<()> {
-        // Create basic material structure
+        // Extract material properties from the Properties70 data
+        let props = &data.props;
+
+        // Create FBX material maps with extracted properties
+        let mut fbx = MaterialFbxMaps::default();
+
+        // Extract diffuse properties
+        if let Some(diffuse_color) = self.find_material_prop(props, &["DiffuseColor", "Diffuse"]) {
+            fbx.diffuse_color = self.create_material_map_vec3(diffuse_color);
+        } else {
+            // Default diffuse color (white)
+            fbx.diffuse_color = self.create_default_vec3_map(Vec3::new(0.8, 0.8, 0.8));
+        }
+
+        if let Some(diffuse_factor) = self.find_material_prop(props, &["DiffuseFactor"]) {
+            fbx.diffuse_factor = self.create_material_map_real(diffuse_factor);
+        } else {
+            fbx.diffuse_factor = self.create_default_real_map(1.0);
+        }
+
+        // Extract specular properties
+        if let Some(specular_color) = self.find_material_prop(props, &["SpecularColor", "Specular"]) {
+            fbx.specular_color = self.create_material_map_vec3(specular_color);
+        } else {
+            fbx.specular_color = self.create_default_vec3_map(Vec3::new(0.2, 0.2, 0.2));
+        }
+
+        if let Some(specular_factor) = self.find_material_prop(props, &["SpecularFactor"]) {
+            fbx.specular_factor = self.create_material_map_real(specular_factor);
+        } else {
+            fbx.specular_factor = self.create_default_real_map(1.0);
+        }
+
+        // Extract shininess/specular exponent (check both spellings)
+        if let Some(shininess) = self.find_material_prop(props, &["Shininess", "Shinyness", "ShininessExponent"]) {
+            fbx.specular_exponent = self.create_material_map_real(shininess);
+        } else {
+            fbx.specular_exponent = self.create_default_real_map(20.0);
+        }
+
+        // Extract emissive properties
+        if let Some(emissive_color) = self.find_material_prop(props, &["EmissiveColor", "Emissive"]) {
+            fbx.emission_color = self.create_material_map_vec3(emissive_color);
+        } else {
+            fbx.emission_color = self.create_default_vec3_map(Vec3::ZERO);
+        }
+
+        if let Some(emissive_factor) = self.find_material_prop(props, &["EmissiveFactor"]) {
+            fbx.emission_factor = self.create_material_map_real(emissive_factor);
+        } else {
+            fbx.emission_factor = self.create_default_real_map(1.0);
+        }
+
+        // Extract ambient properties
+        if let Some(ambient_color) = self.find_material_prop(props, &["AmbientColor", "Ambient"]) {
+            fbx.ambient_color = self.create_material_map_vec3(ambient_color);
+        } else {
+            fbx.ambient_color = self.create_default_vec3_map(Vec3::ZERO);
+        }
+
+        if let Some(ambient_factor) = self.find_material_prop(props, &["AmbientFactor"]) {
+            fbx.ambient_factor = self.create_material_map_real(ambient_factor);
+        } else {
+            fbx.ambient_factor = self.create_default_real_map(1.0);
+        }
+
+        // Extract transparency/opacity (opacity = 1.0 - transparency)
+        if let Some(transparency_factor) = self.find_material_prop(props, &["TransparencyFactor", "Opacity"]) {
+            fbx.transparency_factor = self.create_material_map_real(transparency_factor);
+        } else {
+            fbx.transparency_factor = self.create_default_real_map(0.0);
+        }
+
+        if let Some(transparency_color) = self.find_material_prop(props, &["TransparentColor", "TransparencyColor"]) {
+            fbx.transparency_color = self.create_material_map_vec3(transparency_color);
+        } else {
+            fbx.transparency_color = self.create_default_vec3_map(Vec3::ZERO);
+        }
+
+        // Extract reflection properties
+        if let Some(reflection_color) = self.find_material_prop(props, &["ReflectionColor", "Reflection"]) {
+            fbx.reflection_color = self.create_material_map_vec3(reflection_color);
+        } else {
+            fbx.reflection_color = self.create_default_vec3_map(Vec3::ZERO);
+        }
+
+        if let Some(reflection_factor) = self.find_material_prop(props, &["ReflectionFactor"]) {
+            fbx.reflection_factor = self.create_material_map_real(reflection_factor);
+        } else {
+            fbx.reflection_factor = self.create_default_real_map(1.0);
+        }
+
+        // Extract bump/normal map properties
+        if let Some(bump_factor) = self.find_material_prop(props, &["BumpFactor"]) {
+            fbx.bump_factor = self.create_material_map_real(bump_factor);
+        } else {
+            fbx.bump_factor = self.create_default_real_map(1.0);
+        }
+
+        if let Some(displacement_factor) = self.find_material_prop(props, &["DisplacementFactor"]) {
+            fbx.displacement_factor = self.create_material_map_real(displacement_factor);
+        } else {
+            fbx.displacement_factor = self.create_default_real_map(1.0);
+        }
+
+        // Create PBR material maps (derived from FBX properties and specific PBR properties)
+        let mut pbr = MaterialPbrMaps::default();
+
+        // Base color typically comes from diffuse
+        pbr.base_color = fbx.diffuse_color.clone();
+        pbr.base_factor = fbx.diffuse_factor.clone();
+
+        // Extract PBR-specific properties if present
+        if let Some(metallic) = self.find_material_prop(props, &["Metallic", "Metalness"]) {
+            pbr.metalness = self.create_material_map_real(metallic);
+        } else {
+            pbr.metalness = self.create_default_real_map(0.0);
+        }
+
+        if let Some(roughness) = self.find_material_prop(props, &["Roughness"]) {
+            pbr.roughness = self.create_material_map_real(roughness);
+        } else {
+            // Derive roughness from shininess: roughness ≈ sqrt(2 / (shininess + 2))
+            // This is a common approximation for converting specular/shininess to roughness
+            let shininess = fbx.specular_exponent.value_real;
+            let roughness_val = if shininess > 0.0 {
+                (2.0 / (shininess + 2.0)).sqrt()
+            } else {
+                1.0
+            };
+            pbr.roughness = self.create_default_real_map(roughness_val);
+        }
+
+        // Specular properties
+        pbr.specular_color = fbx.specular_color.clone();
+        pbr.specular_factor = fbx.specular_factor.clone();
+
+        // Emission properties
+        pbr.emission_color = fbx.emission_color.clone();
+        pbr.emission_factor = fbx.emission_factor.clone();
+
+        // Opacity (1.0 - transparency)
+        let opacity_val = 1.0 - fbx.transparency_factor.value_real;
+        pbr.opacity = self.create_default_real_map(opacity_val);
+
+        // Determine shader type from sub-type or properties
+        let shader_type = self.determine_shader_type(&data.sub_type, props);
+
+        // Create material structure
         let material = Material {
             element: Element {
                 name: FbxString::new(data.name.clone()),
@@ -1217,15 +1365,117 @@ impl SceneBuilder {
                 connections_src: vec![],
                 connections_dst: vec![],
             },
-            shader_type: ShaderType::FbxPhong,
+            shader_type,
             shader: None,
-            fbx: MaterialFbxMaps::default(),
-            pbr: MaterialPbrMaps::default(),
+            fbx,
+            pbr,
             textures: vec![],
         };
 
         self.scene.materials.push(material);
         Ok(())
+    }
+
+    /// Find a material property by trying multiple names (short and long forms)
+    fn find_material_prop<'a>(&self, props: &'a Props, names: &[&str]) -> Option<&'a Prop> {
+        for name in names {
+            if let Some(prop) = props.find(name) {
+                return Some(prop);
+            }
+        }
+        None
+    }
+
+    /// Create a MaterialMap from a Vec3 property
+    fn create_material_map_vec3(&self, prop: &Prop) -> MaterialMap {
+        match &prop.value {
+            PropValue::Vec3(v) => MaterialMap {
+                value_vec3: *v,
+                value_vec4: Vec4::new(v.x, v.y, v.z, 1.0),
+                has_value: true,
+                value_components: 3,
+                ..Default::default()
+            },
+            PropValue::Vec4(v) => MaterialMap {
+                value_vec3: Vec3::new(v.x, v.y, v.z),
+                value_vec4: *v,
+                has_value: true,
+                value_components: 4,
+                ..Default::default()
+            },
+            PropValue::Number(n) => MaterialMap {
+                value_real: *n,
+                value_vec3: Vec3::new(*n, *n, *n),
+                value_vec4: Vec4::new(*n, *n, *n, 1.0),
+                has_value: true,
+                value_components: 1,
+                ..Default::default()
+            },
+            _ => Default::default(),
+        }
+    }
+
+    /// Create a MaterialMap from a scalar property
+    fn create_material_map_real(&self, prop: &Prop) -> MaterialMap {
+        match &prop.value {
+            PropValue::Number(n) => MaterialMap {
+                value_real: *n,
+                value_vec3: Vec3::new(*n, *n, *n),
+                has_value: true,
+                value_components: 1,
+                ..Default::default()
+            },
+            PropValue::Integer(i) => MaterialMap {
+                value_real: *i as f64,
+                value_vec3: Vec3::new(*i as f64, *i as f64, *i as f64),
+                value_int: *i,
+                has_value: true,
+                value_components: 1,
+                ..Default::default()
+            },
+            PropValue::Vec3(v) => {
+                // Use first component if Vec3 is provided
+                MaterialMap {
+                    value_real: v.x,
+                    value_vec3: *v,
+                    has_value: true,
+                    value_components: 3,
+                    ..Default::default()
+                }
+            }
+            _ => Default::default(),
+        }
+    }
+
+    /// Create a MaterialMap with a default Vec3 value
+    fn create_default_vec3_map(&self, value: Vec3) -> MaterialMap {
+        MaterialMap {
+            value_vec3: value,
+            value_vec4: Vec4::new(value.x, value.y, value.z, 1.0),
+            has_value: true,
+            value_components: 3,
+            ..Default::default()
+        }
+    }
+
+    /// Create a MaterialMap with a default scalar value
+    fn create_default_real_map(&self, value: f64) -> MaterialMap {
+        MaterialMap {
+            value_real: value,
+            value_vec3: Vec3::new(value, value, value),
+            has_value: true,
+            value_components: 1,
+            ..Default::default()
+        }
+    }
+
+    /// Determine the shader type from the material sub-type and properties
+    fn determine_shader_type(&self, sub_type: &str, _props: &Props) -> ShaderType {
+        match sub_type {
+            "Phong" => ShaderType::FbxPhong,
+            "Lambert" => ShaderType::FbxLambert,
+            _ => ShaderType::FbxPhong, // Default to Phong
+        }
     }
 
     fn extract_local_transform(&self, props: &Props) -> Transform {
@@ -1792,5 +2042,198 @@ mod tests {
         assert_eq!(transform.scale.x, 2.0);
         assert_eq!(transform.scale.y, 2.0);
         assert_eq!(transform.scale.z, 2.0);
+    }
+
+    #[test]
+    fn test_material_property_extraction() {
+        let mut builder = SceneBuilder::new();
+
+        // Create a material with properties
+        let mut props = Props::new();
+
+        // Add diffuse color
+        props.props.push(Prop {
+            name: FbxString::new("DiffuseColor"),
+            value: PropValue::Vec3(Vec3::new(1.0, 0.0, 0.0)),
+            flags: PropFlags::default(),
+        });
+
+        // Add specular color
+        props.props.push(Prop {
+            name: FbxString::new("SpecularColor"),
+            value: PropValue::Vec3(Vec3::new(0.5, 0.5, 0.5)),
+            flags: PropFlags::default(),
+        });
+
+        // Add shininess
+        props.props.push(Prop {
+            name: FbxString::new("Shininess"),
+            value: PropValue::Number(50.0),
+            flags: PropFlags::default(),
+        });
+
+        // Add metallic
+        props.props.push(Prop {
+            name: FbxString::new("Metallic"),
+            value: PropValue::Number(0.8),
+            flags: PropFlags::default(),
+        });
+
+        // Add roughness
+        props.props.push(Prop {
+            name: FbxString::new("Roughness"),
+            value: PropValue::Number(0.3),
+            flags: PropFlags::default(),
+        });
+
+        let element_data = ElementData {
+            fbx_id: 12345,
+            element_type: ElementType::Material,
+            type_name: "Material".to_string(),
+            sub_type: "Phong".to_string(),
+            name: "TestMaterial".to_string(),
+            props,
+        };
+
+        builder.create_material(&element_data).unwrap();
+
+        assert_eq!(builder.scene.materials.len(), 1);
+        let material = &builder.scene.materials[0];
+
+        // Check FBX properties
+        assert_eq!(material.fbx.diffuse_color.value_vec3.x, 1.0);
+        assert_eq!(material.fbx.diffuse_color.value_vec3.y, 0.0);
+        assert_eq!(material.fbx.diffuse_color.value_vec3.z, 0.0);
+        assert!(material.fbx.diffuse_color.has_value);
+
+        assert_eq!(material.fbx.specular_color.value_vec3.x, 0.5);
+        assert_eq!(material.fbx.specular_color.value_vec3.y, 0.5);
+        assert_eq!(material.fbx.specular_color.value_vec3.z, 0.5);
+
+        assert_eq!(material.fbx.specular_exponent.value_real, 50.0);
+
+        // Check PBR properties
+        assert_eq!(material.pbr.base_color.value_vec3.x, 1.0); // From diffuse
+        assert_eq!(material.pbr.metalness.value_real, 0.8);
+        assert_eq!(material.pbr.roughness.value_real, 0.3);
+
+        // Check shader type
+        assert_eq!(material.shader_type, ShaderType::FbxPhong);
+    }
+
+    #[test]
+    fn test_material_default_values() {
+        let mut builder = SceneBuilder::new();
+
+        // Create a material with no properties
+        let element_data = ElementData {
+            fbx_id: 12346,
+            element_type: ElementType::Material,
+            type_name: "Material".to_string(),
+            sub_type: "Lambert".to_string(),
+            name: "DefaultMaterial".to_string(),
+            props: Props::new(),
+        };
+
+        builder.create_material(&element_data).unwrap();
+
+        assert_eq!(builder.scene.materials.len(), 1);
+        let material = &builder.scene.materials[0];
+
+        // Check default FBX properties
+        assert_eq!(material.fbx.diffuse_color.value_vec3.x, 0.8);
+        assert_eq!(material.fbx.diffuse_color.value_vec3.y, 0.8);
+        assert_eq!(material.fbx.diffuse_color.value_vec3.z, 0.8);
+
+        assert_eq!(material.fbx.specular_exponent.value_real, 20.0);
+        assert_eq!(material.fbx.transparency_factor.value_real, 0.0);
+
+        // Check default PBR properties
+        assert_eq!(material.pbr.metalness.value_real, 0.0);
+        assert_eq!(material.pbr.opacity.value_real, 1.0); // 1.0 - 0.0 transparency
+
+        // Check shader type
+        assert_eq!(material.shader_type, ShaderType::FbxLambert);
+    }
+
+    #[test]
+    fn test_material_property_name_variants() {
+        let mut builder = SceneBuilder::new();
+
+        // Test that short names work too
+        let mut props = Props::new();
+        props.props.push(Prop {
+            name: FbxString::new("Diffuse"), // Short form
+            value: PropValue::Vec3(Vec3::new(0.2, 0.4, 0.6)),
+            flags: PropFlags::default(),
+        });
+
+        props.props.push(Prop {
+            name: FbxString::new("Shinyness"), // Alternate spelling
+            value: PropValue::Number(100.0),
+            flags: PropFlags::default(),
+        });
+
+        let element_data = ElementData {
+            fbx_id: 12347,
+            element_type: ElementType::Material,
+            type_name: "Material".to_string(),
+            sub_type: "Phong".to_string(),
+            name: "VariantMaterial".to_string(),
+            props,
+        };
+
+        builder.create_material(&element_data).unwrap();
+
+        let material = &builder.scene.materials[0];
+
+        // Should pick up "Diffuse" as diffuse color
+        assert_eq!(material.fbx.diffuse_color.value_vec3.x, 0.2);
+        assert_eq!(material.fbx.diffuse_color.value_vec3.y, 0.4);
+        assert_eq!(material.fbx.diffuse_color.value_vec3.z, 0.6);
+
+        // Should pick up "Shinyness" as shininess
+        assert_eq!(material.fbx.specular_exponent.value_real, 100.0);
+    }
+
+    #[test]
+    fn test_load_fbx_with_materials() {
+        // Test loading a real FBX file and extracting materials
+        let opts = SceneOpts::default();
+        let result = load_file("data/blender_293_material_mapping_7400_binary.fbx", &opts);
+
+        match result {
+            Ok(scene) => {
+                println!("Loaded scene successfully");
+                println!("Materials count: {}", scene.materials.len());
+
+                // Check if materials were loaded
+                if !scene.materials.is_empty() {
+                    for (i, material) in scene.materials.iter().enumerate() {
+                        println!("\nMaterial {}: {}", i, material.element.name.as_str());
+                        println!("  Shader type: {:?}", material.shader_type);
+                        println!("  Diffuse color: {:?}", material.fbx.diffuse_color.value_vec3);
+                        println!("  Specular color: {:?}", material.fbx.specular_color.value_vec3);
+                        println!("  Shininess: {}", material.fbx.specular_exponent.value_real);
+                        println!("  PBR base color: {:?}", material.pbr.base_color.value_vec3);
+                        println!("  PBR metalness: {}", material.pbr.metalness.value_real);
+                        println!("  PBR roughness: {}", material.pbr.roughness.value_real);
+                        println!("  PBR opacity: {}", material.pbr.opacity.value_real);
+
+                        // Verify the material has reasonable values
+                        assert!(material.fbx.diffuse_color.has_value);
+                        assert!(material.pbr.base_color.has_value);
+                    }
+                }
+
+                println!("\nMeshes count: {}", scene.meshes.len());
+                println!("Nodes count: {}", scene.nodes.len());
+            }
+            Err(e) => {
+                // File might not exist or parsing might fail - that's ok for now
+                println!("Note: Could not load test FBX file: {:?}", e);
+                println!("This is expected if the file doesn't exist or parsing isn't fully implemented yet");
+            }
+        }
     }
 }

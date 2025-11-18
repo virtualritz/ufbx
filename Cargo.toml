@@ -14,19 +14,23 @@ categories = ["parser-implementations", "graphics", "game-development"]
 flate2 = "1.0"           # DEFLATE decompression for FBX
 byteorder = "1.5"        # Binary format parsing
 thiserror = "1.0"        # Ergonomic error types
+rayon = { version = "1.8", optional = true }  # Parallel iterators
+smallvec = "1.11"        # Stack-allocated small vectors
+ahash = "0.8"            # Faster HashMap implementation
 
 [dev-dependencies]
 criterion = "0.5"        # Benchmarking
 approx = "0.5"           # Float comparisons in tests
 
 [features]
-default = ["std", "obj-support"]
+default = ["std", "obj-support", "parallel"]
 std = []
 # Feature flags for optional components
 obj-support = []         # Wavefront OBJ file support
 nurbs = []               # NURBS evaluation
 subdivision = []         # Subdivision surfaces
 geometry-cache = []      # Geometry cache support
+parallel = ["rayon"]     # Enable parallel processing with rayon
 
 [lib]
 name = "ufbx"

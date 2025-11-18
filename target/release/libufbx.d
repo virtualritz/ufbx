@@ -1,1 +1,0 @@
-/home/user/ufbx/target/release/libufbx.rlib: /home/user/ufbx/src/animation.rs /home/user/ufbx/src/ascii.rs /home/user/ufbx/src/binary.rs /home/user/ufbx/src/error.rs /home/user/ufbx/src/geometry.rs /home/user/ufbx/src/lib.rs /home/user/ufbx/src/obj.rs /home/user/ufbx/src/scene.rs /home/user/ufbx/src/types.rs
