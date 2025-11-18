@@ -4,6 +4,7 @@ proj/
 
 # Build output
 build/
+target/
 
 # Python cache files
 __pycache__/
