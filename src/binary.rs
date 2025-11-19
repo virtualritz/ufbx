@@ -108,12 +108,25 @@ pub enum ValueType {
 pub enum Value {
     Number { i: i64, f: f64 },
     String(FbxString),
+    // Writer-specific variants for precise type control
+    Bool(bool),
+    Int16(i16),
+    Int32(i32),
+    Int64(i64),
+    Float32(f32),
+    Float64(f64),
 }
 
 impl Value {
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             Value::Number { i, .. } => Some(*i),
+            Value::Bool(b) => Some(*b as i64),
+            Value::Int16(v) => Some(*v as i64),
+            Value::Int32(v) => Some(*v as i64),
+            Value::Int64(v) => Some(*v),
+            Value::Float32(v) => Some(*v as i64),
+            Value::Float64(v) => Some(*v as i64),
             _ => None,
         }
     }
@@ -121,6 +134,12 @@ impl Value {
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Value::Number { f, .. } => Some(*f),
+            Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+            Value::Int16(v) => Some(*v as f64),
+            Value::Int32(v) => Some(*v as f64),
+            Value::Int64(v) => Some(*v as f64),
+            Value::Float32(v) => Some(*v as f64),
+            Value::Float64(v) => Some(*v),
             _ => None,
         }
     }
@@ -180,9 +199,9 @@ pub struct FbxNode {
 }
 
 impl FbxNode {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: impl Into<String>) -> Self {
         Self {
-            name,
+            name: name.into(),
             values: Vec::new(),
             array: None,
             children: Vec::new(),
@@ -206,6 +225,8 @@ pub struct FbxDocument {
     pub version: u32,
     pub big_endian: bool,
     pub root: FbxNode,
+    // Writer uses nodes instead of nested root
+    pub nodes: Vec<FbxNode>,
 }
 
 // =============================================================================
@@ -254,6 +275,7 @@ impl<R: Read> BinaryParser<R> {
             version,
             big_endian: self.file_big_endian,
             root,
+            nodes: Vec::new(),  // Populated only for writer
         })
     }
 

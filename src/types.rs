@@ -1202,6 +1202,25 @@ pub enum CoordinateAxis {
     NegativeZ,
 }
 
+impl CoordinateAxis {
+    /// Convert axis to index (0=X, 1=Y, 2=Z)
+    pub fn to_axis_index(&self) -> usize {
+        match self {
+            CoordinateAxis::PositiveX | CoordinateAxis::NegativeX => 0,
+            CoordinateAxis::PositiveY | CoordinateAxis::NegativeY => 1,
+            CoordinateAxis::PositiveZ | CoordinateAxis::NegativeZ => 2,
+        }
+    }
+
+    /// Check if axis is positive
+    pub fn is_positive(&self) -> bool {
+        match self {
+            CoordinateAxis::PositiveX | CoordinateAxis::PositiveY | CoordinateAxis::PositiveZ => true,
+            CoordinateAxis::NegativeX | CoordinateAxis::NegativeY | CoordinateAxis::NegativeZ => false,
+        }
+    }
+}
+
 /// Coordinate axes configuration
 #[derive(Debug, Clone, Copy)]
 pub struct CoordinateAxes {

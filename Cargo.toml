@@ -31,6 +31,7 @@ nurbs = []               # NURBS evaluation
 subdivision = []         # Subdivision surfaces
 geometry-cache = []      # Geometry cache support
 parallel = ["rayon"]     # Enable parallel processing with rayon
+writer = []              # Enable FBX file writing functionality
 
 [lib]
 name = "ufbx"
